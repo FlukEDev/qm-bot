@@ -214,41 +214,6 @@ Report trades / win rate / expectancy (R) / profit factor / max drawdown —
 win rate alone is misleading for an RR-gated strategy. Check in-sample vs
 out-of-sample don't diverge wildly (overfitting) before trusting the bot.
 
-## Version history — `versions/`
-
-Every change to this bot is snapshotted into its own folder under
-`versions/`, alongside a `CHANGES.txt` explaining what changed and why.
-Browse the index at [`versions/INDEX.md`](versions/INDEX.md).
-
-```
-versions/
-├── INDEX.md            ← table of every version
-├── v1.6.0/
-│   ├── CHANGES.txt     ← what changed, why, which files
-│   └── code/           ← full copy of the source at that point
-└── v1.7.0/
-    ├── CHANGES.txt
-    └── code/
-```
-
-**After making any change, record a new version:**
-```bash
-python make_version.py 1.8.0 "short summary of the change"
-```
-That copies the current source into `versions/v1.8.0/code/`, diffs it against
-the previous version to list added/modified/removed files, writes a
-`CHANGES.txt` stub, and rebuilds the index. Fill in the detail section of
-`CHANGES.txt` afterwards (or pass `--note "..."` up front).
-
-Secrets are never copied into a snapshot — `.env`, `signals.db`, `userid.txt`,
-logs, charts, and cached data are all excluded, since `versions/` is committed
-to git.
-
-Versions v1.0.0–v1.5.0 have `CHANGES.txt` but no `code/`: they predate this
-system, and their source was overwritten before being committed separately.
-Reconstructing them would produce files that were never actually run, so the
-history there is documentation only.
-
 ## Notes
 
 - **HTF (higher-timeframe) structure filter** (`htf_filter` in `config.yaml`)

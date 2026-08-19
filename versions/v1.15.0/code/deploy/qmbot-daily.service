@@ -1,0 +1,15 @@
+[Unit]
+Description=QM Bot — daily Bitcoin trend report to LINE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=qmbot
+Group=qmbot
+WorkingDirectory=/opt/qmbot
+ExecStart=/opt/qmbot/.venv/bin/python /opt/qmbot/daily_report.py --config /opt/qmbot/config.yaml
+# One retry if the exchange or LINE is briefly unreachable. Without this a
+# single transient failure means no report at all until tomorrow.
+Restart=on-failure
+RestartSec=120

@@ -85,11 +85,26 @@ divergence:
 # --- Higher-timeframe (HTF) structure alignment --------------------------
 # Rejects a signal that clearly fights the higher timeframe's trend (a
 # bearish 1H signal while 4H is making higher-highs/higher-lows, or the
-# mirror). The highest-value confluence filter per the skill's own theory
-# doc and the research behind it — see htf_filter.py. A "neutral"/undecided
-# HTF reading never blocks anything; this only removes clear contradictions.
+# mirror). See htf_filter.py.
+#
+# DISABLED after backtesting on 89,985 1H bars (15 symbols, ~250 days).
+# It was added on the strength of general multi-timeframe research, but on
+# THIS strategy it made every metric worse, in-sample AND out-of-sample:
+#
+#                        trades   win%   expectancy   PF     maxDD
+#   divergence only        171    39.8%    +0.767R   2.07   -13.4R
+#   + HTF alignment        118    34.7%    +0.589R   1.75   -19.8R
+#
+# The likely reason is conceptual: QM is a REVERSAL pattern, so a valid
+# bearish QM is *supposed* to appear while the higher timeframe still reads
+# bullish — the 4H has not turned yet, that is the trade. Demanding HTF
+# agreement therefore filters out precisely the early reversals the pattern
+# exists to catch, keeping only late continuation-style setups.
+#
+# Left in place (code + config) so it can be re-tested; flip to true and
+# compare with: python backtest_full.py --bars 6000 --split 0.3
 htf_filter:
-  enabled: true
+  enabled: false
   reference:
     "1h": "4h"    # 1H signals are checked against 4H structure; 4H signals
                   # aren't cross-checked (no higher timeframe is scanned)

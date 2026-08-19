@@ -216,16 +216,31 @@ out-of-sample don't diverge wildly (overfitting) before trusting the bot.
 
 ## Notes
 
-- **HTF (higher-timeframe) structure filter** (`htf_filter` in `config.yaml`,
-  enabled by default): rejects a 1H signal that clearly fights the 4H trend
-  (a bearish signal while 4H is making higher-highs/higher-lows, or the
-  mirror). This is the single highest-value confluence filter per the
-  skill's own theory doc and the multi-timeframe research behind it — see
-  `htf_filter.py`. It only ever removes signals, never adds ones the RR/
-  divergence gates wouldn't have found, so expect noticeably *fewer* signals
-  than before this was added — that's the intended tradeoff (fewer, higher
-  quality). Set `htf_filter.enabled: false` to turn it off and compare via
-  `backtest.py --split`.
+- **HTF (higher-timeframe) structure filter** (`htf_filter` in `config.yaml`)
+  is **disabled**, and the reason is worth knowing before re-enabling it.
+  It was added on the strength of general multi-timeframe research, then
+  backtested on 89,985 1H bars (15 symbols, ~250 days) — where it made every
+  metric worse, in-sample *and* out-of-sample:
+
+  | config | trades | win% | expectancy | PF | maxDD |
+  |---|---|---|---|---|---|
+  | divergence only | 171 | 39.8% | **+0.767R** | 2.07 | −13.4R |
+  | + HTF alignment | 118 | 34.7% | +0.589R | 1.75 | −19.8R |
+
+  The likely reason is conceptual: QM is a *reversal* pattern, so a valid
+  bearish QM is supposed to appear while the higher timeframe still reads
+  bullish — the 4H hasn't turned yet, that's the trade. Demanding HTF
+  agreement filters out exactly the early reversals the pattern exists to
+  catch. The code and config are left in place so it can be re-tested:
+  flip `enabled: true` and compare with
+  `python backtest_full.py --bars 6000 --split 0.3`.
+- **Backtested edge of the current live config** (divergence on, HTF off),
+  same 89,985-bar sample: 171 trades, 39.8% win rate, **+0.767R expectancy**,
+  profit factor 2.07, max drawdown −13.4R. In-sample (+0.717R) and
+  out-of-sample (+0.909R) agree, which is the main thing worth checking —
+  a number that only holds in-sample is overfitting, not an edge. Note the
+  low win rate is expected and fine: this is an RR-gated strategy
+  (`min_rr: 1.5`), so it wins less than half the time and still profits.
 - `signals.db` (SQLite) de-dupes by `signal_id`, keyed on the QM head bar's
   timestamp — never delete it while the bot is live, or you'll get repeat
   alerts for patterns already sent.

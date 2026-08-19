@@ -1,0 +1,172 @@
+# QM signal bot configuration
+# Thresholds are ATR multiples, not raw price, so one config works across every
+# coin in the dynamic universe without retuning per symbol.
+
+state_db: signals.db
+log_dir: logs   # daily text logs, e.g. logs/2026-08-17.log — see qmbotctl.py
+
+line:
+  # Never commit a real token — leave null here, set LINE_CHANNEL_ACCESS_TOKEN in .env instead.
+  channel_access_token: null
+  # Your own userId (starts with "U..."), captured once via webhook_capture.py.
+  # Leave null here and set LINE_TO_USER_ID in .env instead.
+  to: null
+
+# --- Symbol universe -------------------------------------------------------
+# Data source: Binance USDⓈ-M perpetual futures (linear, USDT-margined) — NOT
+# spot. Prices/structure differ from spot (funding-rate basis, no delivery),
+# which is expected: this bot is meant to read the futures chart, matching
+# what most retail traders mean by "Binance Futures". Symbols below can stay
+# in plain "BASE/USDT" form — universe.to_perp_symbol() converts to ccxt's
+# unified futures symbol ("BASE/USDT:USDT") automatically.
+#
+# BTC/USDT and ETH/USDT are always included. The remaining slots are filled at
+# startup by universe.top_usdt_pairs() with the top-N Binance futures contracts
+# by 24h quote volume (leveraged tokens excluded), cached for one day so we
+# are not hitting the ticker endpoint on every scan.
+universe:
+  exchange: binanceusdm
+  always_include: [BTC/USDT, ETH/USDT]
+  top_n: 100
+  cache_path: universe_cache.json
+  cache_ttl_hours: 24
+
+# Timeframes scanned for every symbol in the universe.
+timeframes:
+  - "1h"
+  - "4h"
+
+source:
+  type: ccxt
+  exchange: binanceusdm
+
+limit: 500        # candles fetched per request
+fresh_bars: 1      # only alert on signals that triggered within the last N closed bars
+unit: coin         # position-size unit label used in the Flex "Size" row
+
+# --- QM detection ------------------------------------------------------
+# Per-timeframe overrides for pivot_left/pivot_right.
+#
+# 1H uses a WIDE swing window (15) on purpose: a swing must dominate 15 bars
+# on each side to count, so the patterns found are the large ones visible
+# when you zoom out over a week of 1H chart — not 3-bar wiggles. Paired with
+# max_bars_to_retest=168 (= 168 x 1H = one week) so a big pattern has room
+# to come back for its retest.
+#
+# Backtested on 418,390 1H bars (40 symbols, ~500 days), expectancy per trade,
+# divergence gate on, HTF gate off:
+#
+#   pivot / retest      in-sample        out-of-sample
+#     3 / 50   (old)     +0.383R (531)    +0.404R (204)
+#     3 / 168            +0.305R (645)    +0.529R (273)
+#    10 / 168            +0.549R (223)    +0.581R (130)
+#    12 / 168            +0.727R (188)    +0.592R (107)
+#    15 / 168  (now)     +0.606R (156)    +0.840R  (86)
+#
+# The whole 13-22 pivot range is positive in both samples (OOS 0.57-0.86),
+# so 15 sits on a plateau rather than a lucky spike — its neighbours 13 and
+# 18 both hold up. Expect roughly 3x FEWER signals than the old 3/50 setting.
+#
+# Note this was measured at 15 symbols first, where pivot=12 looked best and
+# pivot=15 looked unreliable (n=34). Only after widening to 40 symbols did
+# the ranking stabilise — small samples were the reason, not the market.
+#
+# 1H is scanned with TWO profiles so both scales get reported and the trader
+# decides which to act on. Each signal is labelled with the profile it came
+# from ("1h short" / "1h wide") in LINE, the chart title, and the dedupe key,
+# so the two never overwrite each other.
+qm:
+  "1h":
+    # short view — patterns roughly 0.5-3 days wide
+    - name: short
+      pivot_left: 3
+      pivot_right: 3
+      atr_period: 14
+      min_sweep_atr: 0.10
+      min_bos_atr: 0.10
+      over_tol_atr: 0.50
+      sl_buffer_atr: 0.25
+      min_rr: 1.5
+      max_bars_to_retest: 50
+      trigger_mode: close_reject
+      tp2_extension: 0.618
+    # wide view — patterns roughly 3-10 days wide (the week-scale structure)
+    - name: wide
+      pivot_left: 15
+      pivot_right: 15
+      atr_period: 14
+      min_sweep_atr: 0.10
+      min_bos_atr: 0.10
+      over_tol_atr: 0.50
+      sl_buffer_atr: 0.25
+      min_rr: 1.5
+      max_bars_to_retest: 168   # 1 week of 1H bars
+      trigger_mode: close_reject
+      tp2_extension: 0.618
+  # 4H left unchanged: pivot 5 already spans 5 x 4H = 20 hours, and
+  # max_bars_to_retest 50 = 50 x 4H ≈ 8 days, so this timeframe is already
+  # looking at roughly week-scale structure. The "wider view" change above
+  # was specifically about the 1H chart.
+  "4h":
+    pivot_left: 5
+    pivot_right: 5
+    atr_period: 14
+    min_sweep_atr: 0.10
+    min_bos_atr: 0.10
+    over_tol_atr: 0.50
+    sl_buffer_atr: 0.25
+    min_rr: 1.5
+    max_bars_to_retest: 50
+    trigger_mode: close_reject
+    tp2_extension: 0.618
+
+# --- Divergence confirmation --------------------------------------------
+# A detected QM is only sent to LINE if RSI(14) diverges from price between
+# the LS and HEAD pivots (bearish: RSI lower high vs price higher high;
+# bullish: mirror). See divergence.py.
+divergence:
+  rsi_period: 14
+  min_rsi_diff: 2.0
+  required: true    # if false, signals are sent regardless of divergence (tagged either way)
+
+# --- Higher-timeframe (HTF) structure alignment --------------------------
+# Rejects a signal that clearly fights the higher timeframe's trend (a
+# bearish 1H signal while 4H is making higher-highs/higher-lows, or the
+# mirror). See htf_filter.py.
+#
+# DISABLED after backtesting on 89,985 1H bars (15 symbols, ~250 days).
+# It was added on the strength of general multi-timeframe research, but on
+# THIS strategy it made every metric worse, in-sample AND out-of-sample:
+#
+#                        trades   win%   expectancy   PF     maxDD
+#   divergence only        171    39.8%    +0.767R   2.07   -13.4R
+#   + HTF alignment        118    34.7%    +0.589R   1.75   -19.8R
+#
+# The likely reason is conceptual: QM is a REVERSAL pattern, so a valid
+# bearish QM is *supposed* to appear while the higher timeframe still reads
+# bullish — the 4H has not turned yet, that is the trade. Demanding HTF
+# agreement therefore filters out precisely the early reversals the pattern
+# exists to catch, keeping only late continuation-style setups.
+#
+# Left in place (code + config) so it can be re-tested; flip to true and
+# compare with: python backtest_full.py --bars 6000 --split 0.3
+htf_filter:
+  enabled: false
+  reference:
+    "1h": "4h"    # 1H signals are checked against 4H structure; 4H signals
+                  # aren't cross-checked (no higher timeframe is scanned)
+  pivot_left: 3
+  pivot_right: 3
+  lookback: 6     # how many recent confirmed swing pivots to read the trend from
+
+risk:
+  equity: 10000
+  risk_pct: 0.01
+
+chart:
+  render_width_px: 1200
+
+# Cloudflare R2 (S3-compatible). Real credentials live in .env, not here.
+r2:
+  bucket: null              # overridden by R2_BUCKET env var
+  public_base_url: null     # overridden by R2_PUBLIC_BASE_URL env var

@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+signals.db
+universe_cache.json
+userid.txt
+*.png
+logs/
+qmbot.pid
+qmbot.crash.log
+bot.log
+.DS_Store
+# Cached OHLCV history for backtest_full.py — regenerated automatically on
+# first run. Not committed: it is derived data, and "last N bars" shifts over
+# time anyway, so committing it would not freeze the sample.
+data/history/
+# Deep history from data.binance.vision (43MB) — rebuild with
+# `python fetch_binance_vision.py BTCUSDT ...`; derived data, not source.
+data/vision/

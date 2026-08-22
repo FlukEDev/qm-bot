@@ -2,8 +2,7 @@
 
 **[English](#english) · [ภาษาไทย](README.th.md)**
 
-Scans Binance USDⓈ-M perpetual futures — crypto plus gold — for **QM
-(Quasimodo)** reversal patterns, confirms each one against RSI momentum and
+Scans Binance USDⓈ-M perpetual futures for **QM (Quasimodo)** reversal patterns, confirms each one against RSI momentum and
 candle quality, and pushes the setup to **LINE** with an annotated chart.
 
 It tells you where a setup is. It does not place orders, and it is not
@@ -18,7 +17,7 @@ advice — you decide what to trade.
 Every hour, one minute after the candle closes, the bot:
 
 1. Pulls the top-N Binance futures pairs by 24h volume (leveraged tokens,
-   stablecoin pairs and tokenised stocks/metals filtered out)
+   stablecoin pairs and tokenised stocks/metals filtered out).
 2. Detects QM structure on each — Left Shoulder → Head (liquidity sweep) →
    Break of Structure → retest of the QM Level
 3. Checks the break was a real one (candle body, not a wick) and that the
@@ -117,51 +116,6 @@ the sweep must exceed `min_sweep_atr` × ATR, the break must exceed
 `min_bos_atr` × ATR, the stop sits `sl_buffer_atr` × ATR beyond the Head.
 That is what lets one config run over BTC at $60,000 and a coin at
 $0.00004 without per-symbol tuning.
-
-## 2b. Gold, and other things that are not coins
-
-Binance lists gold on the same USDⓈ-M venue, so gold rides the existing
-pipeline with no second data source and no weekend-gap plumbing. Two kinds
-exist and they are not interchangeable:
-
-| symbol | what it is | history | trades weekends? |
-|---|---|---|---|
-| `PAXG/USDT` | token backed 1:1 by a troy ounce of gold | **5.9 years** (spot) | yes, genuinely |
-| `XAU/USDT` | spot gold itself, wrapped as a perpetual | 8 months | no — the bars are filler |
-
-`PAXG` is the one with evidence behind it. Over 5.9 years of hourly history:
-
-| | trades | win | expectancy | PF |
-|---|---|---|---|---|
-| no candle gate | 237 | 48.5% | +0.388R | 1.44 |
-| with candle gate | 41 | 63.4% | +1.185R | 3.11 |
-
-It fires **6.9 times a year** — slightly more often than the median crypto
-symbol (4.8). But read it more sceptically than the crypto numbers:
-**+0.388R is well below crypto's +0.634R**, and split by year the last two
-are negative (2025 −0.164R, 2026 −0.189R). The candle-gated column looks
-excellent but rests on 41 trades spread over six years. Gold is the weakest
-part of this bot.
-
-`XAU` is real gold and by far the most liquid (783M USDT/24h), but it only
-listed in December 2025 — the entire history yields **three trades**, which
-validates nothing. It also has a problem PAXG does not: the underlying gold
-market shuts at the weekend while Binance keeps printing hourly bars.
-Measured, those bars carry **17–35% of a weekday's range**. Left in, they
-drag ATR down (and every threshold in this bot is measured in ATR), create
-pivots out of 0.02% wiggles, and burn the retest window on dead hours.
-
-So the bot drops them, from **Fri 21:00 to Sun 22:00 UTC** — the real gold
-session, read off the data rather than assumed. That removes 29% of XAU's
-bars and lifts the median bar range from 0.292% to 0.378%.
-
-**Be clear about what that last part is:** unlike every other filter here,
-the session cut is justified by mechanism, not by measurement — 8 months of
-history cannot test it. If you would rather not run unvalidated logic, drop
-`XAU/USDT` from `universe.extra_symbols` and keep `PAXG/USDT`.
-
-Silver (`XAG/USDT`) was tested and left out: 9 trades, losing in every
-variant.
 
 ## 3. Why signals arrive a few bars late — and never disappear
 
@@ -325,7 +279,7 @@ python backtest_full.py --data-dir data/vision --split 0.3
 
 **Probably yes if** you swing-trade crypto manually, want a shortlist of
 structural setups rather than a black box, and are comfortable being handed
-~50 signals a month of which about half lose.
+~43 signals a month of which about half lose.
 
 **Probably not if** you want automated execution, a high win rate, signals
 on demand rather than on the hour, or anything outside crypto perpetuals.
@@ -434,8 +388,6 @@ numbers behind it in a comment. The ones worth knowing:
 | setting | what it changes |
 |---|---|
 | `universe.top_n` | how many symbols to scan |
-| `universe.extra_symbols` | instruments to scan regardless of asset class — this is how gold gets in |
-| `market_hours.weekend_closed` | symbols whose dead weekend bars are dropped before detection |
 | `qm.1h[].pivot_left/right` | swing size — 3 finds small patterns, 15 finds week-scale ones |
 | `qm.1h[].max_bars_to_retest` | how long a pattern may wait for its retest |
 | `qm.1h[].min_rr` | the single strongest filter; raise it if you get too many signals |
@@ -448,10 +400,25 @@ numbers behind it in a comment. The ones worth knowing:
 
 ### Signal volume vs LINE quota
 
-Roughly **50 signals/month** at defaults with 100 symbols, plus 30 daily
-summaries — about 80 of the free tier's 300. Turning the candle gate off
-takes it to ~170/month (~200 total), which still fits but leaves little
-room. To go the other way: raise `min_rr`, cut `universe.top_n`, or set
+Measured across 98 symbols of history, scaled to a 100-symbol universe. A
+signal costs **one** message: LINE bills per recipient, and the Flex bubble
+and chart image ship in a single push.
+
+| source | per month | worst month seen |
+|---|---|---|
+| crypto 1H (both profiles) | 41 | 60 |
+| crypto 4H | 2 | 8 |
+| daily Bitcoin summary | 30 | 31 |
+| **total** | **73 / 300** | **99 / 300** |
+
+So the free tier has roughly 4x headroom.
+
+Note the interaction with `daily_report.quota_throttle`: it drops the
+Bitcoin summary to weekly once usage passes 50% (150 messages). Even the
+worst month measured stays under that, so the daily summary should keep
+running.
+
+To go lower anyway: raise `min_rr`, cut `universe.top_n`, or set
 `last_swing.min_diff: 5` for grade A only.
 
 ## Layout
@@ -463,7 +430,6 @@ divergence.py          RSI confirmation + A/B/C grading
 candle_quality.py      body-vs-wick quality at HEAD and BOS
 htf_filter.py          higher-timeframe alignment (off by default)
 universe.py            symbol selection
-sessions.py            drops bars when the underlying market is shut
 chart_renderer.py      annotated PNG
 chart_uploader.py      S3/R2 upload
 line_notifier.py       LINE Messaging API
@@ -482,8 +448,8 @@ bot, including the ones that were later reversed and why.
 
 - **Not auto-trading.** It sends messages. Nothing is ordered.
 - **Not advice.** Every message carries a disclaimer, and so does this line.
-- **Crypto and gold only.** FX and equities would need a different data
-  source. Gold is supported but is the least-validated part — see above.
+- **Crypto only.** Gold, FX and equities would need a different data source
+  and their own session handling.
 - **Reversal patterns fail often.** ~50% win rate with the candle gate, ~45%
   without, is the design — not a bug. The RR gate is what makes it work.
 - **Signals are hourly, not instant.** Nothing is sent between candle closes.

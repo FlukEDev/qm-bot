@@ -76,8 +76,7 @@ def _is_crypto_perp(exchange, symbol: str) -> bool:
     return info.get("contractType") == "PERPETUAL" and info.get("underlyingType") == "COIN"
 
 
-def _fetch_fresh(exchange, n: int, always_include: list[str],
-                 extra_symbols: list[str] | None = None) -> list[str]:
+def _fetch_fresh(exchange, n: int, always_include: list[str]) -> list[str]:
     exchange.load_markets()  # populate exchange.markets[...]['info'] for the contractType check
     tickers = exchange.fetch_tickers()
     ranked = [
@@ -92,14 +91,6 @@ def _fetch_fresh(exchange, n: int, always_include: list[str],
     for sym in top:
         if sym not in ordered:
             ordered.append(sym)
-    # Non-crypto instruments (gold, silver) are excluded from the ranking on
-    # purpose by _is_crypto_perp, so the only way in is to name them. They are
-    # appended rather than prepended: `always_include` is "majors I always want
-    # ranked first", this is "also scan these, they are a different asset class".
-    for sym in extra_symbols or []:
-        perp = to_perp_symbol(sym)
-        if perp not in ordered:
-            ordered.append(perp)
     return ordered
 
 
@@ -109,7 +100,6 @@ def top_usdt_pairs(
     always_include: list[str] | None = None,
     cache_path: str | Path = "universe_cache.json",
     cache_ttl_hours: float = 24,
-    extra_symbols: list[str] | None = None,
 ) -> list[str]:
     """Return `always_include` + top-`n` Binance USDT-M perpetual futures
     contracts by 24h quote volume, as ccxt-ready 'BASE/USDT:USDT' symbols.
@@ -119,29 +109,22 @@ def top_usdt_pairs(
     structure and would otherwise pollute the universe with noisy pseudo-QMs.
     Binance's TradFi-wrapped perpetuals (tokenized gold/silver, stocks) are
     excluded too — they aren't cryptocurrencies at all, see _is_crypto_perp.
-    `extra_symbols` is the deliberate way back in for those: name an instrument
-    there and it is scanned regardless of asset class.
     """
     always_include = always_include or []
-    extra_symbols = extra_symbols or []
     cache_path = Path(cache_path)
 
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text())
             age_hours = (time.time() - cached["fetched_at"]) / 3600
-            # `extra` is part of the cache key: editing extra_symbols in config
-            # must take effect on the next scan, not up to 24h later.
-            if (age_hours < cache_ttl_hours and cached.get("n") == n
-                    and cached.get("extra") == list(extra_symbols)):
+            if age_hours < cache_ttl_hours and cached.get("n") == n:
                 return cached["symbols"]
         except (json.JSONDecodeError, KeyError, OSError):
             pass  # corrupt or partial cache — fall through and refetch
 
-    symbols = _fetch_fresh(exchange, n, always_include, extra_symbols)
+    symbols = _fetch_fresh(exchange, n, always_include)
     cache_path.write_text(
-        json.dumps({"fetched_at": time.time(), "n": n,
-                    "extra": list(extra_symbols), "symbols": symbols})
+        json.dumps({"fetched_at": time.time(), "n": n, "symbols": symbols})
     )
     log.info("universe refreshed: %d symbols (%s)", len(symbols), ", ".join(symbols[:5]) + ", ...")
     return symbols

@@ -38,7 +38,6 @@ from divergence import attach_divergence
 from htf_filter import htf_allows, htf_structure
 from logging_setup import setup_logging
 from qm_detector import QMConfig, detect_qm, position_size
-from sessions import drop_closed_hours, session_filter_for
 from state import SignalStore
 from universe import display_symbol, top_usdt_pairs
 
@@ -93,7 +92,6 @@ def scan_once(cfg: dict, exchange, store: SignalStore, notifier, dry_run: bool =
         always_include=uni_cfg.get("always_include", []),
         cache_path=uni_cfg.get("cache_path", "universe_cache.json"),
         cache_ttl_hours=uni_cfg.get("cache_ttl_hours", 24),
-        extra_symbols=uni_cfg.get("extra_symbols", []),
     )
     timeframes = cfg.get("timeframes", ["1h", "4h"])
     qm_cfg_by_tf = cfg.get("qm", {})
@@ -108,7 +106,6 @@ def scan_once(cfg: dict, exchange, store: SignalStore, notifier, dry_run: bool =
     fresh_bars = cfg.get("fresh_bars", 2)
     unit = cfg.get("unit", "coin")
     line_to = cfg.get("line", {}).get("to") or os.environ.get("LINE_TO_USER_ID")
-    weekend_closed = (cfg.get("market_hours", {}) or {}).get("weekend_closed", [])
     sent = 0
 
     for symbol in symbols:  # ccxt-ready perpetual futures symbol, e.g. "BTC/USDT:USDT"
@@ -121,21 +118,9 @@ def scan_once(cfg: dict, exchange, store: SignalStore, notifier, dry_run: bool =
         # structure) and both timeframes are scanned anyway, so this reuses
         # data instead of fetching 4H twice.
         dfs: dict[str, pd.DataFrame] = {}
-        # Instruments whose underlying market shuts at the weekend (gold,
-        # silver) still print hourly bars on Binance, but they are near-flat
-        # filler rather than price discovery. Drop them before anything reads
-        # the frame — ATR, pivots and the retest window are all distorted by
-        # them. See sessions.py for the measurement.
-        closed_hours = session_filter_for(symbol, weekend_closed)
         for tf in timeframes:
             try:
-                df_tf = fetch_ohlcv(exchange, symbol, tf, limit)
-                if closed_hours:
-                    before = len(df_tf)
-                    df_tf = drop_closed_hours(df_tf)
-                    log.debug("%s %s: dropped %d closed-market bar(s)",
-                              disp, tf, before - len(df_tf))
-                dfs[tf] = df_tf
+                dfs[tf] = fetch_ohlcv(exchange, symbol, tf, limit)
             except Exception as exc:  # a dead feed must not kill the whole scan
                 log.warning("fetch failed %s %s: %s", disp, tf, exc)
 

@@ -56,13 +56,24 @@ def collect_files() -> list[Path]:
     return out
 
 
-def previous_version(current: str) -> str | None:
-    def key(name: str):
-        return tuple(int(x) for x in name.lstrip("v").split("."))
+# X.Y.Z พร้อมส่วนต่อท้าย pre-release ที่ไม่บังคับ (เช่น v1.23.0-beta)
+VERSION_RE = re.compile(r"v?\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?")
 
+
+def version_key(name: str) -> tuple:
+    """คีย์สำหรับเรียงเวอร์ชัน — pre-release มาก่อนตัวจริงตามธรรมเนียม semver
+
+    ต้องใช้ตัวเดียวกันทุกที่ ไม่งั้นสารบัญกับการหาเวอร์ชันก่อนหน้าจะเรียงคนละแบบ
+    """
+    core, _, pre = name.lstrip("v").partition("-")
+    return tuple(int(x) for x in core.split(".")) + (0 if pre else 1,)
+
+
+def previous_version(current: str) -> str | None:
+    key = version_key
     existing = []
     for d in VERSIONS.iterdir() if VERSIONS.exists() else []:
-        if d.is_dir() and re.fullmatch(r"v\d+\.\d+\.\d+", d.name):
+        if d.is_dir() and VERSION_RE.fullmatch(d.name):
             existing.append(d.name)
     earlier = [v for v in existing if key(v) < key(f"v{current}")]
     return max(earlier, key=key) if earlier else None
@@ -87,7 +98,7 @@ def diff_against(prev_code: Path, files: list[Path]) -> tuple[list, list, list]:
 def rebuild_index() -> None:
     rows = []
     for d in sorted(VERSIONS.iterdir()):
-        if not (d.is_dir() and re.fullmatch(r"v\d+\.\d+\.\d+", d.name)):
+        if not (d.is_dir() and VERSION_RE.fullmatch(d.name)):
             continue
         changes = d / "CHANGES.txt"
         date, summary = "-", "-"
@@ -101,7 +112,7 @@ def rebuild_index() -> None:
         rows.append((d.name, date, has_code, summary))
 
     def key(r):
-        return tuple(int(x) for x in r[0].lstrip("v").split("."))
+        return version_key(r[0])
 
     rows.sort(key=key, reverse=True)
 
@@ -188,8 +199,11 @@ def main() -> None:
         print("อัปเดต versions/INDEX.md แล้ว")
         return
 
-    if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
-        raise SystemExit("รูปแบบเวอร์ชันต้องเป็น X.Y.Z เช่น 1.8.0")
+    # อนุญาตส่วนต่อท้ายแบบ pre-release (เช่น 1.23.0-beta) สำหรับเวอร์ชันที่
+    # ยังทดลองอยู่และยังไม่ push ขึ้น GitHub — จะได้เก็บ snapshot ไว้อ้างอิงได้
+    # เหมือนเวอร์ชันปกติ โดยไม่ปนกับเวอร์ชันที่ถือว่าเสร็จแล้ว
+    if not VERSION_RE.fullmatch(args.version):
+        raise SystemExit("รูปแบบเวอร์ชันต้องเป็น X.Y.Z หรือ X.Y.Z-ชื่อ เช่น 1.8.0 หรือ 1.23.0-beta")
 
     vdir = VERSIONS / f"v{args.version}"
     code = vdir / "code"

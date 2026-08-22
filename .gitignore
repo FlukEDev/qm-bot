@@ -18,3 +18,8 @@ data/history/
 # Deep history from data.binance.vision (43MB) — rebuild with
 # `python fetch_binance_vision.py BTCUSDT ...`; derived data, not source.
 data/vision/
+
+# Version snapshots stay on this machine only — they are a personal working
+# record (every change, including the ones later reversed), not something the
+# public repo needs. `make_version.py` keeps writing here; git just ignores it.
+versions/
